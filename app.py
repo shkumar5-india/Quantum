@@ -12,7 +12,8 @@ from qiskit_nature.second_q.circuit.library import HartreeFock, UCCSD
 
 from qiskit_algorithms import VQE
 from qiskit_algorithms.optimizers import SLSQP
-from qiskit.primitives import Estimator
+from qiskit_aer.primitives import Estimator
+
 
 app = Flask(__name__)
 
