@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quantum VQE Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="container">
+    <h1>⚛️ Quantum Molecule VQE Simulator</h1>
+
+    <div class="card">
+        <label>Select Molecule</label>
+        <select id="molecule">
+            <option value="H2">Hydrogen (H₂)</option>
+            <option value="LiH">Lithium Hydride (LiH)</option>
+        </select>
+
+        <button onclick="runVQE()">Generate Energy Curve</button>
+    </div>
+
+    <div class="card result">
+        <h2>Potential Energy Curve</h2>
+        <img id="plot" width="100%" />
+    </div>
+</div>
+
+<script>
+async function runVQE() {
+    const molecule = document.getElementById("molecule").value;
+    document.getElementById("plot").src = "";
+
+    const response = await fetch("/run_vqe", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ molecule: molecule })
+    });
+
+    const data = await response.json();
+    document.getElementById("plot").src = "data:image/png;base64," + data.plot;
+}
+</script>
+
+</body>
+</html>

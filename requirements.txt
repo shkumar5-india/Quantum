@@ -1,0 +1,8 @@
+flask
+qiskit
+qiskit-nature
+qiskit-algorithms
+pyscf
+matplotlib
+numpy
+scipy
