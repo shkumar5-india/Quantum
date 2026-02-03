@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from qiskit.primitives import Estimator
-from qiskit_algorithms import VQE
-from qiskit_algorithms.optimizers import SLSQP
+from qiskit.algorithms import VQE
+from qiskit.algorithms.optimizers import SLSQP
+from qiskit_aer.primitives import Estimator
 
 from qiskit_nature.second_q.drivers import PySCFDriver
 from qiskit_nature.second_q.problems import ElectronicStructureProblem
@@ -20,7 +20,7 @@ from qiskit_nature.second_q.circuit.library import HartreeFock, UCCSD
 app = Flask(__name__)
 CORS(app)
 
-# -------- Utility --------
+# ---------- Utility ----------
 def get_mapper(name):
     return JordanWignerMapper() if name == "JW" else ParityMapper()
 
@@ -30,6 +30,7 @@ def run_vqe_energy(atom_string, basis, mapper_type):
         problem = ElectronicStructureProblem(driver)
 
         mapper = get_mapper(mapper_type)
+
         second_q_ops = problem.second_q_ops()
         main_op = list(second_q_ops.values())[0]
         qubit_op = mapper.map(main_op)
@@ -73,7 +74,7 @@ def run_vqe_curve():
         geom = f"H 0 0 0; H 0 0 {d}" if molecule == "H2" else f"Li 0 0 0; H 0 0 {d}"
         energy = run_vqe_energy(geom, basis, mapper)
         if energy is None:
-            return jsonify({"error": "VQE failed"}), 500
+            return jsonify({"error": "VQE calculation failed"}), 500
         energies.append(energy)
 
     min_energy = min(energies)
@@ -115,6 +116,9 @@ def run_storage():
         run_vqe_energy(f"N 0 0 0; B 0 0 1.5; P 0 0 {d}", basis, mapper)
         for d in distances
     ]
+
+    if None in complex_energies:
+        return jsonify({"error": "Storage simulation failed"}), 500
 
     E4 = min(complex_energies)
     E5, E6 = E4 + 0.02, E4 + 0.04
