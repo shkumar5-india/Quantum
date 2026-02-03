@@ -1,11 +1,11 @@
-flask
-flask-cors
-numpy
-matplotlib
-scipy
+flask==3.0.2
+flask-cors==4.0.0
+numpy==1.26.4
+matplotlib==3.8.3
+scipy==1.12.0
 
-qiskit
-qiskit-aer
-qiskit-algorithms
+qiskit==0.45.2
+qiskit-aer==0.13.3
+qiskit-algorithms==0.2.1
 qiskit-nature==0.6.2
-pyscf
+pyscf==2.5.0
