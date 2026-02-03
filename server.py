@@ -5,9 +5,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 from qiskit.primitives import Estimator
 from qiskit_algorithms import VQE
@@ -18,71 +17,64 @@ from qiskit_nature.second_q.problems import ElectronicStructureProblem
 from qiskit_nature.second_q.mappers import JordanWignerMapper, ParityMapper
 from qiskit_nature.second_q.circuit.library import HartreeFock, UCCSD
 
-app = FastAPI()
+app = Flask(__name__)
+CORS(app)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ---------- Utility ----------
+# -------- Utility --------
 def get_mapper(name):
     return JordanWignerMapper() if name == "JW" else ParityMapper()
 
 def run_vqe_energy(atom_string, basis, mapper_type):
-    driver = PySCFDriver(atom=atom_string, basis=basis)
-    problem = ElectronicStructureProblem(driver)
+    try:
+        driver = PySCFDriver(atom=atom_string, basis=basis)
+        problem = ElectronicStructureProblem(driver)
 
-    mapper = get_mapper(mapper_type)
+        mapper = get_mapper(mapper_type)
+        second_q_ops = problem.second_q_ops()
+        main_op = list(second_q_ops.values())[0]
+        qubit_op = mapper.map(main_op)
 
-    # Get electronic Hamiltonian (safe way)
-    second_q_ops = problem.second_q_ops()
-    main_op = list(second_q_ops.values())[0]
+        num_particles = problem.num_particles
+        num_spatial_orbitals = problem.num_spatial_orbitals
 
-    qubit_op = mapper.map(main_op)
+        init_state = HartreeFock(num_spatial_orbitals, num_particles, mapper)
 
-    num_particles = problem.num_particles
-    num_spatial_orbitals = problem.num_spatial_orbitals
+        ansatz = UCCSD(
+            num_spatial_orbitals=num_spatial_orbitals,
+            num_particles=num_particles,
+            mapper=mapper,
+            initial_state=init_state,
+        )
 
-    init_state = HartreeFock(
-        num_spatial_orbitals,
-        num_particles,
-        mapper
-    )
+        vqe = VQE(Estimator(), ansatz, SLSQP(maxiter=100))
+        result = vqe.compute_minimum_eigenvalue(qubit_op)
 
-    ansatz = UCCSD(
-        num_spatial_orbitals=num_spatial_orbitals,
-        num_particles=num_particles,
-        mapper=mapper,
-        initial_state=init_state,
-    )
+        return float(result.eigenvalue.real)
 
-    vqe = VQE(Estimator(), ansatz, SLSQP(maxiter=100))
-    result = vqe.compute_minimum_eigenvalue(qubit_op)
-
-    return float(result.eigenvalue.real)
+    except Exception as e:
+        print("VQE ERROR:", e)
+        return None
 
 def hartree_to_kjmol(E):
     return E * 2625.5
 
 # ================= PART 1 =================
+@app.route("/run_vqe_curve", methods=["POST"])
+def run_vqe_curve():
+    data = request.json
+    molecule = data.get("molecule", "H2")
+    basis = data.get("basis", "sto3g")
+    mapper = data.get("mapper", "JW")
 
-class VQERequest(BaseModel):
-    molecule: str
-    basis: str = "sto3g"
-    mapper: str = "JW"
-
-@app.post("/run_vqe_curve")
-async def run_vqe_curve(data: VQERequest):
     bond_lengths = np.linspace(0.5, 2.5, 8)
     energies = []
 
     for d in bond_lengths:
-        geom = f"H 0 0 0; H 0 0 {d}" if data.molecule == "H2" else f"Li 0 0 0; H 0 0 {d}"
-        energies.append(run_vqe_energy(geom, data.basis, data.mapper))
+        geom = f"H 0 0 0; H 0 0 {d}" if molecule == "H2" else f"Li 0 0 0; H 0 0 {d}"
+        energy = run_vqe_energy(geom, basis, mapper)
+        if energy is None:
+            return jsonify({"error": "VQE failed"}), 500
+        energies.append(energy)
 
     min_energy = min(energies)
     min_dist = float(bond_lengths[energies.index(min_energy)])
@@ -91,31 +83,28 @@ async def run_vqe_curve(data: VQERequest):
     plt.plot(bond_lengths, energies, marker="o")
     plt.xlabel("Bond Length (Å)")
     plt.ylabel("Energy (Hartree)")
-    plt.title(f"{data.molecule} Dissociation Curve")
+    plt.title(f"{molecule} Dissociation Curve")
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", bbox_inches="tight")
     plt.close()
     img = base64.b64encode(buf.getvalue()).decode()
 
-    return {
+    return jsonify({
         "bond_lengths": bond_lengths.tolist(),
         "energies": energies,
         "min_energy": min_energy,
         "optimal_distance": min_dist,
         "plot": img
-    }
+    })
 
 # ================= PART 2 =================
-
-class StorageRequest(BaseModel):
-    basis: str = "sto3g"
-    mapper: str = "JW"
-    temperature: float = 298.15
-
-@app.post("/run_hydrogen_storage")
-async def run_storage(req: StorageRequest):
-    basis, mapper, T = req.basis, req.mapper, req.temperature
+@app.route("/run_hydrogen_storage", methods=["POST"])
+def run_storage():
+    data = request.json
+    basis = data.get("basis", "sto3g")
+    mapper = data.get("mapper", "JW")
+    T = float(data.get("temperature", 298.15))
 
     E1 = run_vqe_energy("N 0 0 0; B 0 0 1.5", basis, mapper)
     E2 = run_vqe_energy("P 0 0 0; H 0 0 1.0", basis, mapper)
@@ -132,8 +121,8 @@ async def run_storage(req: StorageRequest):
 
     bind_energy = hartree_to_kjmol(E4 - (E1 + E2))
     release_energy = hartree_to_kjmol(E5 - E4)
-
     deltaG_bind = bind_energy - (T * 0.01)
+
     spontaneity = "Spontaneous" if deltaG_bind < 0 else "Non-spontaneous"
 
     plt.figure()
@@ -150,15 +139,17 @@ async def run_storage(req: StorageRequest):
     plt.close()
     img2 = base64.b64encode(buf2.getvalue()).decode()
 
-    return {
-        "energies": {"E1":E1,"E2":E2,"E3":E3,"E4":E4,"E5":E5,"E6":E6},
+    return jsonify({
         "binding_energy_kjmol": bind_energy,
         "release_energy_kjmol": release_energy,
         "deltaG_binding": deltaG_bind,
         "spontaneity": spontaneity,
         "plots": {"binding_curve": img1, "reaction_diagram": img2}
-    }
+    })
 
-@app.get("/")
+@app.route("/")
 def home():
-    return {"message": "Quantum VQE backend running 🚀"}
+    return {"message": "Quantum VQE Flask backend running 🚀"}
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
