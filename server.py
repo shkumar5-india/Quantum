@@ -39,18 +39,27 @@ def run_vqe_energy(atom_string, basis, mapper_type):
 
     mapper = get_mapper(mapper_type)
 
-    second_q_op = problem.second_q_ops()[0]
-    qubit_op = mapper.map(second_q_op)
+    # FIX 1: Correct way to get electronic Hamiltonian
+    second_q_ops = problem.second_q_ops()
+    main_op = second_q_ops["ElectronicEnergy"]
+
+    # Map fermionic operator → qubit operator
+    qubit_op = mapper.map(main_op)
 
     num_particles = problem.num_particles
     num_spin_orbitals = problem.num_spin_orbitals
 
-    init_state = HartreeFock(num_spin_orbitals, num_particles, mapper)
+    # FIX 2: Use qubit_mapper argument
+    init_state = HartreeFock(
+        num_spin_orbitals,
+        num_particles,
+        qubit_mapper=mapper
+    )
 
     ansatz = UCCSD(
         num_spin_orbitals=num_spin_orbitals,
         num_particles=num_particles,
-        mapper=mapper,
+        qubit_mapper=mapper,
         initial_state=init_state,
     )
 
@@ -59,8 +68,6 @@ def run_vqe_energy(atom_string, basis, mapper_type):
 
     return float(result.eigenvalue.real)
 
-def hartree_to_kjmol(E):
-    return E * 2625.5
 
 # ================= PART 1 =================
 
