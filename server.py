@@ -28,8 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------ Utility ------------------
-
+# ---------- Utility ----------
 def get_mapper(name):
     return JordanWignerMapper() if name == "JW" else ParityMapper()
 
@@ -39,27 +38,25 @@ def run_vqe_energy(atom_string, basis, mapper_type):
 
     mapper = get_mapper(mapper_type)
 
-    # FIX 1: Correct way to get electronic Hamiltonian
+    # Get electronic Hamiltonian (safe way)
     second_q_ops = problem.second_q_ops()
-    main_op = second_q_ops["ElectronicEnergy"]
+    main_op = list(second_q_ops.values())[0]
 
-    # Map fermionic operator → qubit operator
     qubit_op = mapper.map(main_op)
 
     num_particles = problem.num_particles
-    num_spin_orbitals = problem.num_spin_orbitals
+    num_spatial_orbitals = problem.num_spatial_orbitals
 
-    # FIX 2: Use qubit_mapper argument
     init_state = HartreeFock(
-        num_spin_orbitals,
+        num_spatial_orbitals,
         num_particles,
-        qubit_mapper=mapper
+        mapper
     )
 
     ansatz = UCCSD(
-        num_spin_orbitals=num_spin_orbitals,
+        num_spatial_orbitals=num_spatial_orbitals,
         num_particles=num_particles,
-        qubit_mapper=mapper,
+        mapper=mapper,
         initial_state=init_state,
     )
 
@@ -68,6 +65,8 @@ def run_vqe_energy(atom_string, basis, mapper_type):
 
     return float(result.eigenvalue.real)
 
+def hartree_to_kjmol(E):
+    return E * 2625.5
 
 # ================= PART 1 =================
 
@@ -159,3 +158,7 @@ async def run_storage(req: StorageRequest):
         "spontaneity": spontaneity,
         "plots": {"binding_curve": img1, "reaction_diagram": img2}
     }
+
+@app.get("/")
+def home():
+    return {"message": "Quantum VQE backend running 🚀"}
